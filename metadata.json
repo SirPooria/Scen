@@ -1,0 +1,6 @@
+{
+  "name": "Instagram Reels Scenario Generator",
+  "description": "Generates high-converting, viral Instagram Reels scripts and scenarios based on product details, target audience, and competitive advantages.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
