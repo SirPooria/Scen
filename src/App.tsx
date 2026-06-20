@@ -328,6 +328,67 @@ ${captionVal}
     window.print();
   };
 
+  // Resilient content generation with fallbacks using Puter.js in the frontend
+  const generateContentWithFallback = async (systemInstruction: string, userPrompt: string): Promise<string> => {
+    const modelsToTry = [
+      "gemini-1.5-flash", 
+      "gemini-2.5-flash", 
+      "gpt-4o-mini", 
+      "meta-llama-3-1-405b-instruct",
+      "meta-llama-3-1-70b-instruct"
+    ];
+    let lastError: any = null;
+    const pc = (window as any).puter;
+    if (!pc) {
+      throw new Error("کتابخانه Puter.js یافت نشد. لطفاً چند لحظه صبر کنید یا صفحه را رفرش نمائید.");
+    }
+
+    for (const model of modelsToTry) {
+      try {
+        console.log(`[Puter AI] Requesting generation using model alias: ${model}`);
+        const response = await pc.ai.chat([
+          { role: "system", content: systemInstruction },
+          { role: "user", content: userPrompt }
+        ], { model });
+
+        let replyText = "";
+        if (typeof response === "string") {
+          replyText = response;
+        } else if (response && response.message && typeof response.message.content === "string") {
+          replyText = response.message.content;
+        } else if (response && typeof response.text === "string") {
+          replyText = response.text;
+        } else {
+          replyText = JSON.stringify(response);
+        }
+
+        if (replyText && replyText.trim()) {
+          return replyText;
+        }
+      } catch (error: any) {
+        console.warn(`[Puter AI Warning] Model ${model} failed:`, error.message || error);
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+    throw lastError;
+  };
+
+  const cleanAndParseJSON = (text: string): any => {
+    let cleaned = text.trim();
+    if (cleaned.startsWith("```")) {
+      const lines = cleaned.split("\n");
+      if (lines[0].startsWith("```json") || lines[0].startsWith("```")) {
+        lines.shift();
+      }
+      if (lines[lines.length - 1].startsWith("```")) {
+        lines.pop();
+      }
+      cleaned = lines.join("\n").trim();
+    }
+    return JSON.parse(cleaned);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (loading) return;
@@ -355,22 +416,72 @@ ${captionVal}
     setScenarios([]);
 
     try {
-      const res = await fetch("/api/generate-scenarios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productName,
-          targetAudience,
-          competitiveAdvantage,
-          tone
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "مشکلی در تولید سناریو رخ داده است.");
+      let toneInstruction = "";
+      if (tone === "funny") {
+        toneInstruction = "لحن اصلی باید کاملاً طنز، شوخ‌طبعانه، با کنایه‌ها و اصطلاحات خنده‌دار، جذاب و صمیمی روز اینستاگرام ایران باشد تا مخاطب بخندد و درگیر شود.";
+      } else if (tone === "formal") {
+        toneInstruction = "لحن اصلی باید رسمی، لوکس، پرستیژدار، حرفه‌ای و محترمانه، اما مدرن و متقاعدکننده باشد (بدون به کار بردن کلمات خشک و پیچیده قدیمی اداری).";
+      } else if (tone === "excited") {
+        toneInstruction = "لحن اصلی باید سرشار از هیجان شدید، فوق‌العاده پرانرژی، حماسی، با ریتم بالا و کلماتی باشد که فوراً شور و ترغیب آنی برای خرید در مخاطب به وجود آورد.";
+      } else if (tone === "aggressive") {
+        toneInstruction = "لحن اصلی باید چالش‌برانگیز، تهاجمی، رک و بی‌پرده، جسورانه و نترس باشد (مثلاً مچ‌گیری از مشکلات مخاطب، تخریب رویکردهای غلط قدیمی و مقایسه بی‌رحمانه مزیت محصول).";
+      } else {
+        toneInstruction = "لحن اصلی باید پرانرژی، متقاعدکننده، صمیمی، رفیقانه و به اصطلاح بسیار خیابانی و کپی‌رایت‌شده تمیز و متعادل باشد.";
       }
+
+      const systemInstruction = `
+تو یک سناریونویس ارشد ریلز اینستاگرام (Instagram Reels Scriptwriter)، کپی‌رایتر فوق‌حرفه‌ای و استراتژیست رشد وایرال مارکتینگ (Viral Marketing Specialist) در ایران هستی.
+تخصص بی‌نظیر تو در نوشتن سناریوهای داغ، میخکوب‌کننده، احساسی و به شدت پولساز برای ریلزهای زیر ۶۰ ثانیه صفحات فروشگاهی اینستاگرام است.
+تو اصول روانشناسی مصرف‌کننده، ایجاد حس فوریت (FOMO) و درگیر کردن سریع احساسات مخاطب را بدون نقص پیاده‌سازی می‌کنی.
+
+وظیفه تو:
+یک کاربر به تو سه ورودی مشخص می‌دهد:
+۱. نام محصول: "${productName}"
+۲. مخاطب هدف: "${targetAudience}"
+۳. مزیت رقابتی/آفر یا پیشنهاد ویژه: "${competitiveAdvantage}"
+
+بر اساس این داده‌ها، باید به تعداد ${scenarioCount} سناریوی کاملاً متفاوت (با زاویه‌های دید گوناگون مثل آموزشی، طنز، مستقیم، داستان‌گویی، چالش‌برانگیز یا اعترافی) برای ریلزهای زیر ۶۰ ثانیه طراحی کنی.
+همچنین برای پاسخگویی به طراحان کمپین تبلیغاتی و کسانی که تست A/B بازدهی انجام می‌دهند، وظیفه داری نسخه دومی (نسخه B) برای هر سناریو بنویسی طوری که "فیلم‌برداری" و "توضیحات صوتی عمومی" کاملاً ثابت مانده اما "متن قلاب شروع" (hookB) و "دعوت به اقدام پایان" (callToActionB) و همچنین "کپشن" (captionB) بازنویسی روانشناسی‌شده مجدد شوند تا کپی‌رایترها بتوانند درصد تبدیل و واچ‌تایم را تست کنند.
+
+لحن خروجی تو به زبان فارسی و با ادبیات زیر است:
+- ${toneInstruction}
+- فاقد هرگونه کلمه یا جمله کلیشه‌ای و تکراری. جملات روان، بسیار کوتاه، کوبنده و ضربتی باشند.
+- هماهنگی شدید با ترندهای روز اینستاگرامی ایران.
+
+تمام فیلدها باید به فارسی نوشته شوند (به جز scenarioType که می‌تواند به انگلیسی یا فارسی کوتاه باشد).
+مهم‌ترین نکته: خروجی تو باید فقط و فقط یک شیء JSON معتبر مطابق قالب زیر باشد، بدون هیچ توضیحات اضافی یا مارک‌داون دورش. قالب مورد نیاز:
+{
+  "scenarios": [
+    {
+      "scenarioType": "نوع سبک ویدئو (مثل: طنز، چالش، آموزشی، داستان‌گویی، مستقیم)",
+      "hook": "قلاب ۳ ثانیه اول نسخه فرضی A (یک جمله به شدت درگیرکننده که مخاطب اسکرول را فوراً متوقف کند)",
+      "hookB": "قلاب بازنویسی‌شده ثانویه نسخه فرضی B (دارای رویکرد کپی‌رایتینگ متفاوت)",
+      "visualInstructions": "دستورالعمل دقیق و مرحله به مرحله برای تصویربرداری و قاب‌بندی ویدیو",
+      "audioScript": "متن گوینده یا وویس‌اور ریلز یا متنهای روی ویدیو به صورت بخش‌بندی شده و کوتاه",
+      "callToAction": "دعوت به اقدام پایانی نسخه فرضی A (CTA)",
+      "callToActionB": "دعوت به اقدام پایانی نسخه فرضی B برای تست نرخ تعامل",
+      "caption": "کپشن جذاب و خلاصه نسخه A به همراه هشتگ‌ها",
+      "captionB": "کپشن جذاب و خلاصه نسخه B به همراه هشتگ‌های جایگزین و مکمل",
+      "viralPotentialScore": 85, // عدد بین ۱ تا ۱۰۰
+      "hookStrength": 90, // عدد بین ۱ تا ۱۰۰
+      "ctaClarity": 80, // عدد بین ۱ تا ۱۰۰
+      "visualEngagement": 88 // عدد بین ۱ تا ۱۰۰
+    }
+  ]
+}
+`.trim();
+
+      const userPrompt = `
+محصول: ${productName}
+مخاطب هدف: ${targetAudience}
+آفر و مزیت رقابتی: ${competitiveAdvantage}
+لحن مدنظر: ${tone || "معمولی/صمیمی"}
+تعداد سناریوها: دقیقاً ${scenarioCount} سناریو منحصربه‌فرد
+
+لطفاً دقیقاً به تعداد ${scenarioCount} سناریوی بی‌نظیر ریلز با پتانسیل بالای وایرال شدن برای تبلیغ این محصول بنویس که دقیقاً بازتاب‌دهنده لحن فوق‌الذکر باشد. برای هر سناریو حتماً فیلدهای مربوط به نسخه ثانویه تستی (A/B testing) را نیز در فیلدهای اختصاصی B تولید کن.`;
+
+      const aiResponseText = await generateContentWithFallback(systemInstruction, userPrompt);
+      const data = cleanAndParseJSON(aiResponseText);
 
       if (data.scenarios && Array.isArray(data.scenarios)) {
         setScenarios(data.scenarios);
@@ -399,11 +510,11 @@ ${captionVal}
           triggerToast("سناریو تست آماده شد! برای مشاهده نسخه کامل ورود کنید.");
         }
       } else {
-        throw new Error("فرمت اطلاعات بازگشتی از سرور نامعتبر است.");
+        throw new Error("فرمت اطلاعات بازگشتی از هوش مصنوعی نامعتبر است.");
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "خطای غیرمنتظره‌ای رخ داد. از اتصال اینترنت یا کلید خود مطمئن شوید.");
+      setError(err.message || "خطای غیرمنتظره‌ای رخ داد. از اتصال به اینترنت مطمئن شوید.");
     } finally {
       setLoading(false);
     }
